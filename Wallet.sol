@@ -13,7 +13,7 @@ pragma solidity ^0.4.7;
 
 contract multiowned {
 
-	// TYPES
+    // TYPES
 
     // struct for the status of a pending operation.
     struct PendingState {
@@ -22,7 +22,7 @@ contract multiowned {
         uint index;
     }
 
-	// EVENTS
+    // EVENTS
 
     // this contract only has six types of events: it can accept a confirmation, in which case
     // we record owner and operation (hash) alongside it.
@@ -35,22 +35,24 @@ contract multiowned {
     // the last one is emitted if the required signatures change
     event RequirementChanged(uint newRequirement);
 
-	// MODIFIERS
+    // MODIFIERS
 
     // simple single-sig function modifier.
     modifier onlyowner {
-        if (isOwner(msg.sender))
-            _;
+        if (!isOwner(msg.sender))
+            throw;
+        _;
     }
     // multi-sig function modifier: the operation must have an intrinsic hash in order
     // that later attempts can be realised as the same underlying operation and
     // thus count as confirmations.
     modifier onlymanyowners(bytes32 _operation) {
-        if (confirmAndCheck(_operation))
-            _;
+        if (!confirmAndCheck(_operation))
+            throw;
+        _;
     }
 
-	// METHODS
+    // METHODS
 
     // constructor is given number of sigs required to do protected "onlymanyowners" transactions
     // as well as the selection of addresses capable of confirming them.
@@ -209,7 +211,7 @@ contract multiowned {
         delete m_pendingIndex;
     }
 
-   	// FIELDS
+    // FIELDS
 
     // the number of owners that must confirm the same operation before it is run.
     uint public m_required;
@@ -231,7 +233,7 @@ contract multiowned {
 // uses is specified in the modifier.
 contract daylimit is multiowned {
 
-	// METHODS
+    // METHODS
 
     // constructor - stores initial daily limit and records the present day's index.
     function daylimit(uint _limit) {
@@ -268,7 +270,7 @@ contract daylimit is multiowned {
     // determines today's index.
     function today() private constant returns (uint) { return now / 1 days; }
 
-	// FIELDS
+    // FIELDS
 
     uint public m_dailyLimit;
     uint public m_spentToday;
@@ -278,7 +280,7 @@ contract daylimit is multiowned {
 // interface contract for multisig proxy contracts; see below for docs.
 contract multisig {
 
-	// EVENTS
+    // EVENTS
 
     // logged events:
     // Funds has arrived into the wallet (record how much).
@@ -303,7 +305,7 @@ contract multisig {
 // Wallet(w).from(anotherOwner).confirm(h);
 contract Wallet is multisig, multiowned, daylimit {
 
-	// TYPES
+    // TYPES
 
     // Transaction structure to remember details of transaction lest it need be saved for a later call.
     struct Transaction {
@@ -317,7 +319,7 @@ contract Wallet is multisig, multiowned, daylimit {
     // constructor - just pass on the owner array to the multiowned and
     // the limit to daylimit
     function Wallet(address[] _owners, uint _required, uint _daylimit)
-            multiowned(_owners, _required) daylimit(_daylimit) {
+        multiowned(_owners, _required) daylimit(_daylimit) {
     }
 
     // kills the contract sending everything to `_to`.
@@ -340,30 +342,33 @@ contract Wallet is multisig, multiowned, daylimit {
         // first, take the opportunity to check that we're under the daily limit.
         if (_data.length == 0 && underLimit(_value)) {
             // yes - just execute the call.
-			address created;
-			if (_to == 0) {
-				created = create(_value, _data);
-			} else {
-            	if (!_to.call.value(_value)(_data))
-					throw;
-			}
-			SingleTransact(msg.sender, _value, _to, _data, created);
+            address created;
+            if (_to == 0) {
+                created = create(_value, _data);
+            } else {
+                if (!_to.call.value(_value)(_data))
+                    throw;
+            }
+            SingleTransact(msg.sender, _value, _to, _data, created);
         } else {
-	        // determine our operation hash.
-	        o_hash = sha3(msg.data, block.number);
-			// do a confirmation if it's pre-existing
-			if (m_txs[o_hash].to != 0 || m_txs[o_hash].value != 0 || m_txs[o_hash].data.length != 0) {
-				confirm(o_hash);
-			} else {
-	            m_txs[o_hash].to = _to;
-	            m_txs[o_hash].value = _value;
-	            m_txs[o_hash].data = _data;
-	            ConfirmationNeeded(o_hash, msg.sender, _value, _to, _data);
-	        }
-		}
+            // determine our operation hash.
+            o_hash = sha3(msg.data, block.number);
+            // do a confirmation if it's pre-existing
+            if (m_txs[o_hash].to != 0 || m_txs[o_hash].value != 0 || m_txs[o_hash].data.length != 0) {
+                confirm(o_hash);
+            } else {
+                // confirm the operation
+                confirmAndCheck(o_hash);
+
+                m_txs[o_hash].to = _to;
+                m_txs[o_hash].value = _value;
+                m_txs[o_hash].data = _data;
+                ConfirmationNeeded(o_hash, msg.sender, _value, _to, _data);
+            }
+        }
     }
 
-	function create(uint _value, bytes _code) internal returns (address o_addr) {
+    function create(uint _value, bytes _code) internal returns (address o_addr) {
         assembly {
             o_addr := create(_value, add(_code, 0x20), mload(_code))
             jumpi(invalidJumpLabel, iszero(extcodesize(o_addr)))
@@ -374,17 +379,17 @@ contract Wallet is multisig, multiowned, daylimit {
     // to determine the body of the transaction from the hash provided.
     function confirm(bytes32 _h) onlymanyowners(_h) returns (bool o_success) {
         if (m_txs[_h].to != 0 || m_txs[_h].value != 0 || m_txs[_h].data.length != 0) {
-			address created;
-			if (m_txs[_h].to == 0) {
-				created = create(m_txs[_h].value, m_txs[_h].data);
-			} else {
-	            if (!m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))
-					throw;
-			}
+            address created;
+            if (m_txs[_h].to == 0) {
+                created = create(m_txs[_h].value, m_txs[_h].data);
+            } else {
+                if (!m_txs[_h].to.call.value(m_txs[_h].value)(m_txs[_h].data))
+                    throw;
+            }
 
             MultiTransact(msg.sender, _h, m_txs[_h].value, m_txs[_h].to, m_txs[_h].data, created);
             delete m_txs[_h];
-			return true;
+            return true;
         }
     }
 
@@ -397,7 +402,7 @@ contract Wallet is multisig, multiowned, daylimit {
         super.clearPending();
     }
 
-	// FIELDS
+    // FIELDS
 
     // pending transactions we have at present.
     mapping (bytes32 => Transaction) m_txs;
