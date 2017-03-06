@@ -39,17 +39,15 @@ contract multiowned {
 
     // simple single-sig function modifier.
     modifier onlyowner {
-        if (!isOwner(msg.sender))
-            throw;
-        _;
+        if (isOwner(msg.sender))
+            _;
     }
     // multi-sig function modifier: the operation must have an intrinsic hash in order
     // that later attempts can be realised as the same underlying operation and
     // thus count as confirmations.
     modifier onlymanyowners(bytes32 _operation) {
-        if (!confirmAndCheck(_operation))
-            throw;
-        _;
+        if (confirmAndCheck(_operation))
+            _;
     }
 
     // METHODS
@@ -354,12 +352,7 @@ contract Wallet is multisig, multiowned, daylimit {
             // determine our operation hash.
             o_hash = sha3(msg.data, block.number);
             // do a confirmation if it's pre-existing
-            if (m_txs[o_hash].to != 0 || m_txs[o_hash].value != 0 || m_txs[o_hash].data.length != 0) {
-                confirm(o_hash);
-            } else {
-                // confirm the operation
-                confirmAndCheck(o_hash);
-
+            if (!confirm(o_hash) && !(m_txs[o_hash].to != 0 || m_txs[o_hash].value != 0 || m_txs[o_hash].data.length != 0)) {
                 m_txs[o_hash].to = _to;
                 m_txs[o_hash].value = _value;
                 m_txs[o_hash].data = _data;
