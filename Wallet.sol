@@ -351,7 +351,8 @@ contract Wallet is multisig, multiowned, daylimit {
         } else {
             // determine our operation hash.
             o_hash = sha3(msg.data, block.number);
-            // do a confirmation if it's pre-existing
+
+            // need a confirmation if it's not pre-existing and cannot confirm it
             if (!confirm(o_hash) && !(m_txs[o_hash].to != 0 || m_txs[o_hash].value != 0 || m_txs[o_hash].data.length != 0)) {
                 m_txs[o_hash].to = _to;
                 m_txs[o_hash].value = _value;
